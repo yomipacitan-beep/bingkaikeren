@@ -1,13 +1,15 @@
-/* BingkaiKeren service worker — app shell offline, runtime cache for CDN library and fonts */
-const VERSION = "bingkaikeren-v1.1.0";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-touch-icon.png"];
+/* BingkaiKeren service worker — app shell offline; campaigns.json selalu dicek terbaru saat online */
+const VERSION = "bingkaikeren-v1.2.0";
+// Works for both layouts: icons in an icons/ folder or next to index.html. Missing files are skipped.
+const SHELL = ["./", "./index.html", "./manifest.webmanifest",
+  "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png", "./icons/apple-touch-icon.png",
+  "./icon-192.png", "./icon-512.png", "./maskable-512.png", "./apple-touch-icon.png"];
 const RUNTIME_HOSTS = ["cdnjs.cloudflare.com", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil((async () => {
     const c = await caches.open(VERSION);
-    await c.addAll(SHELL);
-    // Pre-cache the ZIP library so backup/restore works offline after the first visit.
+    await Promise.all(SHELL.map((u) => c.add(u).catch(() => {})));
     try { await c.add(new Request("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", { mode: "no-cors" })); } catch (_) {}
     self.skipWaiting();
   })());
@@ -20,26 +22,27 @@ self.addEventListener("activate", (e) => {
   })());
 });
 
+async function networkFirst(req, fallbackUrl) {
+  const c = await caches.open(VERSION);
+  try {
+    const fresh = await fetch(req, { cache: "no-cache" });
+    if (fresh && fresh.ok) c.put(fallbackUrl || req, fresh.clone());
+    return fresh;
+  } catch (_) {
+    return (await c.match(fallbackUrl || req)) || (fallbackUrl ? await c.match("./") : null) ||
+      new Response("<h1>Offline</h1><p>Buka BingkaiKeren sekali saat online agar bisa dipakai offline.</p>", { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
+}
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // Page navigations: network first, fall back to the cached app shell (offline).
-  if (req.mode === "navigate") {
-    e.respondWith((async () => {
-      try {
-        const fresh = await fetch(req);
-        const c = await caches.open(VERSION); c.put("./index.html", fresh.clone());
-        return fresh;
-      } catch (_) {
-        return (await caches.match("./index.html")) || (await caches.match("./")) || new Response("<h1>Offline</h1><p>Buka BingkaiKeren sekali saat online agar bisa dipakai offline.</p>", { headers: { "Content-Type": "text/html" } });
-      }
-    })());
-    return;
-  }
+  if (req.mode === "navigate") { e.respondWith(networkFirst(req, "./index.html")); return; }
+  // Daftar campaign: selalu ambil versi terbaru, pakai cache hanya saat offline.
+  if (url.origin === location.origin && url.pathname.endsWith(".json")) { e.respondWith(networkFirst(req)); return; }
 
-  // Same-origin static files and known CDNs: cache first, refresh in background.
   if (url.origin === location.origin || RUNTIME_HOSTS.includes(url.hostname)) {
     e.respondWith((async () => {
       const c = await caches.open(VERSION);

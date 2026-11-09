@@ -782,7 +782,7 @@ async function deleteProject(p) {
   await DB.del(p.id); toast("Proyek dihapus."); return true;
 }
 function projectCard(p) {
-  const thumb = p.assets.preview ? `<img src="${objURL(p.assets.preview)}" alt="">` : icon("image");
+  const thumb = p.assets.cover ? `<img src="${objURL(p.assets.cover)}" alt="" style="object-fit:cover">` : p.assets.preview ? `<img src="${objURL(p.assets.preview)}" alt="">` : icon("image");
   return `<article class="card proj" data-id="${esc(p.id)}">
     <div class="proj-thumb" data-act="open" role="button" tabindex="0" aria-label="Buka ${esc(p.title || "Tanpa judul")}">${thumb}</div>
     <div class="proj-body"><h3>${esc(p.title || "Tanpa judul")}</h3>
@@ -809,6 +809,76 @@ function emptyState(img, title, text, actions) {
   return `<div class="empty"><img class="mascot" src="${img}" alt=""><h3>${title}</h3><p>${text}</p>${actions}</div>`;
 }
 
+/* ---------- CAMPAIGN SIAP PAKAI (campaigns.json di hosting yang sama) ---------- */
+let campaignsCache = null;
+const safeName = (n) => typeof n === "string" && /^[A-Za-z0-9._\/-]{1,120}$/.test(n) && !n.includes("..") && !n.startsWith("/");
+async function loadCampaigns() {
+  if (campaignsCache) return campaignsCache;
+  if (!/^https?:$/.test(location.protocol)) return [];
+  try {
+    const res = await fetch("campaigns.json", { cache: "no-cache" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const list = (Array.isArray(data) ? data : data.campaigns || []).filter(c => c && c.active !== false && typeof c.id === "string" && /^[a-z0-9-]{1,60}$/.test(c.id) && typeof c.title === "string" && (safeName(c.frame) || safeName(c.background)));
+    campaignsCache = list.slice(0, 40);
+    return campaignsCache;
+  } catch { return []; }
+}
+async function fetchAsset(name) {
+  const res = await fetch(name); if (!res.ok) throw new Error(`File ${name} tidak ditemukan di situs.`);
+  const blob = await res.blob(); if (blob.size > LIMITS.fileBytes) throw new Error(`${name} terlalu besar.`);
+  const type = sniffType(new Uint8Array(await blob.slice(0, 12).arrayBuffer())); if (!type) throw new Error(`${name} bukan gambar PNG, JPG, atau WEBP.`);
+  return new Blob([blob], { type });
+}
+async function campaignToProject(c) {
+  const p = newProject();
+  p._quick = true; p._campaign = c.id; p.title = c.title.slice(0, 120); p.description = String(c.description || "").slice(0, 600);
+  p.category = CATEGORIES.includes(c.category) ? c.category : "Lainnya";
+  p.type = c.type === "background" ? "background" : "frame";
+  if (safeName(c.frame)) p.assets.frame = await fetchAsset(c.frame);
+  if (safeName(c.background)) p.assets.background = await fetchAsset(c.background);
+  const ref = await blobToImage(p.assets.frame || p.assets.background);
+  const w = Number(c.output && c.output.w), h = Number(c.output && c.output.h);
+  p.output = (w >= 100 && h >= 100 && Math.max(w, h) <= LIMITS.maxSide && w * h <= LIMITS.maxPixels) ? { w: Math.round(w), h: Math.round(h), preset: "custom" } : { w: ref.naturalWidth, h: ref.naturalHeight, preset: "frame" };
+  const pl = c.placement || {};
+  p.placement = { fit: pl.fit === "contain" ? "contain" : "cover", zoom: clamp(Number(pl.zoom) || 1, .1, 5), ox: clamp(Number(pl.ox) || 0, -.5, .5), oy: clamp(Number(pl.oy) || 0, -.5, .5) };
+  if (/^#[0-9a-f]{6}$/i.test(c.fill || "")) p.fill = c.fill;
+  return p;
+}
+const campaignURL = (id) => appLink() + "#pakai-" + id;
+function campaignCard(c) {
+  const thumb = safeName(c.cover) ? c.cover : null;
+  return `<article class="card proj" data-cid="${esc(c.id)}">
+    <div class="proj-thumb" data-cact="use" role="button" tabindex="0" aria-label="Pakai ${esc(c.title)}">${thumb ? `<img src="${esc(thumb)}" alt="" style="object-fit:cover">` : `<canvas data-cthumb="${esc(c.id)}" width="540" height="540" style="width:100%;height:100%"></canvas>`}</div>
+    <div class="proj-body"><h3>${esc(c.title)}</h3>${c.description ? `<p class="small muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(c.description)}</p>` : ""}</div>
+    <div class="proj-actions">
+      <button class="btn btn-sm btn-primary" data-cact="use" style="flex:3">${icon("image")}Pakai bingkai</button>
+      <button class="btn btn-sm btn-ghost" data-cact="link" aria-label="Salin link campaign">${icon("link")}</button>
+    </div></article>`;
+}
+async function drawCampaignThumbs(root, list) {
+  for (const cv of $$("[data-cthumb]", root)) {
+    const c = list.find(x => x.id === cv.dataset.cthumb); if (!c) continue;
+    try {
+      const frame = safeName(c.frame) ? await blobToImage(await fetchAsset(c.frame)) : null;
+      const bg = safeName(c.background) ? await blobToImage(await fetchAsset(c.background)) : null;
+      const ref = frame || bg, W = ref.naturalWidth, H = ref.naturalHeight, k = 540 / Math.max(W, H);
+      cv.width = Math.round(W * k); cv.height = Math.round(H * k);
+      const ph = samplePhoto();
+      compose(cv.getContext("2d"), { W, H, k, fill: c.fill || "#FFFFFF", bg, frame, photo: ph, ps: initialPhotoState(ph, { output: { w: W, h: H }, placement: c.placement }) });
+    } catch { }
+  }
+}
+function bindCampaignCards(root, list) {
+  root.addEventListener("click", async e => {
+    const b = e.target.closest("[data-cact]"); if (!b) return;
+    const id = b.closest("[data-cid]").dataset.cid;
+    if (b.dataset.cact === "use") location.hash = "pakai-" + id;
+    if (b.dataset.cact === "link") { try { await navigator.clipboard.writeText(campaignURL(id)); toast("Link campaign disalin. Bagikan ke grup WhatsApp."); } catch { prompt("Salin link ini:", campaignURL(id)); } }
+  });
+  root.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.matches("[data-cact=use]")) e.target.click(); });
+}
+
 /* ---------- BERANDA ---------- */
 async function viewHome() {
   const list = (await DB.all()).slice(0, 4);
@@ -825,6 +895,12 @@ async function viewHome() {
     </div>
     <div class="hero-art"><img src="${ART.kids}" alt="Dua siswa berjaket BingkaiKeren mengacungkan jempol dan tanda damai">
       <div class="hero-badge"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#i-logo"/></svg>Foto tetap di<br>perangkatmu</div></div>
+  </section>
+
+  <section class="section" id="readySec" hidden>
+    <div class="section-head"><h2>Campaign siap pakai</h2></div>
+    <p class="muted" style="margin:-6px 0 16px;max-width:60ch">Tinggal pilih, upload foto, lalu unduh. Tidak perlu membuat apa pun.</p>
+    <div class="grid" id="readyGrid"></div>
   </section>
 
   <section class="section">
@@ -849,6 +925,11 @@ async function viewHome() {
     </ol>
   </section>`;
   if (list.length) bindProjectCards($("#homeProjects"), list, () => route());
+  loadCampaigns().then(cs => {
+    const sec = $("#readySec"); if (!sec || !cs.length) return;
+    $("#readyGrid").innerHTML = cs.map(campaignCard).join(""); sec.hidden = false;
+    bindCampaignCards($("#readyGrid"), cs); drawCampaignThumbs($("#readyGrid"), cs);
+  });
   await fontsReady();
   $$("[data-tplc]").forEach(c => { const t = TEMPLATES.find(x => x.id === c.dataset.tplc); const src = drawTemplate(t.id, t);
     compose(c.getContext("2d"), { W: c.width, H: c.height, photo: samplePhoto(), ps: initialPhotoState(samplePhoto(), { output: { w: c.width, h: c.height }, placement: t.placement }), frame: src, fill: "#fff" }); });
@@ -884,12 +965,44 @@ async function viewProjects() {
   const list = await DB.all();
   view.innerHTML = `
   <div class="page-head"><div><h1>Koleksi campaign</h1><p>Proyekmu disimpan di perangkat dan browser ini.</p></div>
-    <div class="row"><button class="btn" id="importBtn">${icon("upload")}Impor ZIP</button><a class="btn btn-primary" href="#create">${icon("plus")}Buat Bingkai</a></div></div>
+    <div class="row"><button class="btn" id="importBtn">${icon("upload")}Impor ZIP</button>${list.length ? `<button class="btn" id="siteBtn">${icon("share")}Jadikan siap pakai</button>` : ""}<a class="btn btn-primary" href="#create">${icon("plus")}Buat Bingkai</a></div></div>
   <div class="note warn" style="margin-bottom:22px">${icon("info")}<span>Menghapus data browser atau memakai jendela pribadi (incognito) bisa menghapus proyek ini. Gunakan <strong>Ekspor ZIP</strong> pada proyek untuk cadangan atau untuk memindahkannya ke perangkat lain.</span></div>
   ${list.length ? `<div class="grid" id="plist">${list.map(projectCard).join("")}</div>`
     : emptyState(ART.m2, "Belum ada yang tersimpan di perangkat ini", "Buat campaign baru, atau impor ZIP yang kamu ekspor dari BingkaiKeren di perangkat lain.", `<div class="row" style="justify-content:center"><a class="btn btn-primary" href="#create">${icon("plus")}Buat Bingkai</a><button class="btn" id="importBtn2">${icon("upload")}Impor ZIP</button></div>`)}`;
   if (list.length) bindProjectCards($("#plist"), list, () => route());
   [$("#importBtn"), $("#importBtn2")].forEach(b => b && (b.onclick = pickAndImport));
+  if ($("#siteBtn")) $("#siteBtn").onclick = () => openSiteExport(list);
+}
+function openSiteExport(list) {
+  openDialog(`<div class="dlg"><h2>Jadikan campaign siap pakai</h2>
+    <p class="muted">Pilih campaign yang ingin tampil di beranda situs untuk semua pengunjung. Hasilnya satu file ZIP berisi <strong>campaigns.json</strong> dan gambar bingkainya.</p>
+    <div class="stack" style="gap:8px;max-height:40dvh;overflow:auto">${list.map(p => `<label class="asset" style="cursor:pointer"><input type="checkbox" value="${esc(p.id)}" checked style="width:20px;height:20px;accent-color:var(--brand)">
+      <div class="thumb" style="width:56px;height:56px">${p.assets.preview ? `<img src="${objURL(p.assets.preview)}" alt="">` : ""}</div>
+      <div class="asset-info"><strong>${esc(p.title || "Tanpa judul")}</strong><span class="muted">${TYPE_LABEL[p.type]}</span></div></label>`).join("")}</div>
+    <div class="note">${icon("info")}<span>Ekstrak ZIP-nya, lalu unggah <strong>semua file</strong> di dalamnya ke repo GitHub (Add file → Upload files). Beberapa menit kemudian campaign muncul di beranda situs. Foto pribadi tidak ikut.</span></div>
+    <div class="dlg-foot"><button class="btn" id="seCancel">Batal</button><button class="btn btn-primary" id="seGo">${icon("download")}Unduh paket</button></div></div>`);
+  $("#seCancel").onclick = closeDialog;
+  $("#seGo").onclick = async () => {
+    const ids = $$("input[type=checkbox]:checked", dlg).map(i => i.value);
+    if (!ids.length) { toast("Pilih minimal satu campaign."); return; }
+    try {
+      const JSZip = needZip(); const zip = new JSZip(); const out = []; const used = new Set();
+      for (const id of ids) {
+        const p = list.find(x => x.id === id); if (!p) continue;
+        let base = slug(p.title); while (used.has(base)) base += "-2"; used.add(base);
+        const c = { id: base, title: p.title || "Campaign", description: p.description || "", category: p.category, type: p.type,
+          output: { w: p.output.w, h: p.output.h }, placement: p.placement, fill: p.fill || "#FFFFFF", active: true };
+        if (p.assets.frame) { c.frame = `${base}.${extFor(p.assets.frame.type)}`; zip.file(c.frame, p.assets.frame); }
+        if (p.assets.background) { c.background = `${base}-latar.${extFor(p.assets.background.type)}`; zip.file(c.background, p.assets.background); }
+        if (p.assets.cover) { c.cover = `${base}-sampul.${extFor(p.assets.cover.type)}`; zip.file(c.cover, p.assets.cover); }
+        out.push(c);
+      }
+      zip.file("campaigns.json", JSON.stringify({ updated: new Date().toISOString().slice(0, 10), campaigns: out }, null, 2));
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+      closeDialog();
+      if (await saveFile(blob, "campaign-siap-pakai.zip")) toast(`${out.length} campaign siap diunggah ke situs.`);
+    } catch (e) { toast(e.message || "Paket gagal dibuat.", "err"); }
+  };
 }
 function pickFile(accept) {
   return new Promise(res => {
@@ -996,15 +1109,15 @@ async function importZip(file) {
 }
 
 /* ---------- BAGIKAN ---------- */
-function openShareDialog({ title, project, blob, filename }) {
-  const link = project && project.templateUrl ? campaignLink(project) : appLink();
+function openShareDialog({ title, project, blob, filename, link: linkOverride }) {
+  const link = linkOverride || (project && project.templateUrl ? campaignLink(project) : appLink());
   const text = title ? `Saya mendukung “${title}”! Buat bingkaimu di sini:` : "Buat twibbon kerenmu di sini:";
   const file = blob ? new File([blob], filename || "bingkaikeren.png", { type: blob.type }) : null;
   const canFile = !!(file && navigator.canShare && navigator.canShare({ files: [file] }));
   const canText = !!navigator.share;
   const enc = encodeURIComponent;
   openDialog(`<div class="dlg">${blob ? `<img class="mascot" src="${ART.m1}" alt="" style="width:72px;height:72px">` : ""}<h2>${blob ? "Gambarmu sudah jadi!" : "Bagikan"}</h2>
-    ${blob ? `<p class="muted">Gambar sudah tersimpan di perangkatmu. ${canFile ? "Bagikan langsung ke aplikasi, atau" : "Untuk mengunggahnya, lampirkan gambar yang sudah diunduh di aplikasimu, atau"} kirim link di bawah.</p>` : `<p class="muted">Kirim link supaya orang lain bisa membuat bingkainya sendiri. ${project && !project.templateUrl ? "Proyek hanya tersimpan di perangkatmu, jadi orang lain perlu file ZIP bingkaimu juga." : ""}</p>`}
+    ${blob ? `<p class="muted">Gambar sudah tersimpan di perangkatmu. ${canFile ? "Bagikan langsung ke aplikasi, atau" : "Untuk mengunggahnya, lampirkan gambar yang sudah diunduh di aplikasimu, atau"} kirim link di bawah.</p>` : `<p class="muted">Kirim link supaya orang lain bisa membuat bingkainya sendiri. ${project && !project.templateUrl && !linkOverride ? "Proyek hanya tersimpan di perangkatmu, jadi orang lain perlu file ZIP bingkaimu juga." : ""}</p>`}
     <div class="share-grid">
       ${canFile ? `<button class="btn btn-primary" id="shFile">${icon("share")}Bagikan gambar</button>` : canText ? `<button class="btn" id="shText">${icon("share")}Bagikan…</button>` : ""}
       <a class="btn" target="_blank" rel="noopener" href="https://wa.me/?text=${enc(text + " " + link)}">${icon("wa")}WhatsApp</a>
@@ -1163,7 +1276,7 @@ function stepInfo(el) {
     <div class="field"><label for="fDesc">Deskripsi singkat <span class="muted">(opsional)</span></label><textarea id="fDesc" class="input" maxlength="600" placeholder="Campaign ini untuk apa?">${esc(d.description)}</textarea></div>
     <div class="field"><label for="fCat">Kategori</label><select id="fCat" class="input">${CATEGORIES.map(c => `<option ${c === d.category ? "selected" : ""}>${c}</option>`).join("")}</select></div>
     <div class="field"><span class="label">Gambar sampul <span class="muted">(opsional)</span></span>
-      <div id="coverSlot">${d.assets.cover ? assetRow("cover", "Gambar sampul") : dropZone("coverDrop", "Pilih gambar sampul", "Tampil di kartu proyek. PNG, JPG, atau WEBP sampai 15 MB.")}</div></div>
+      <div id="coverSlot">${d.assets.cover ? assetRow("cover", "Gambar sampul") : dropZone("coverDrop", "Pilih gambar sampul", "Tampil di kartu Koleksi. Disarankan persegi 1080 × 1080 px (PNG, JPG, atau WEBP, maks. 15 MB).")}</div></div>
     ${wizFoot("Lanjut", { back: false })}`;
   const save = () => { d.title = $("#fTitle").value.trim(); d.description = $("#fDesc").value.trim(); d.category = $("#fCat").value; };
   const slot = $("#coverSlot");
@@ -1310,9 +1423,10 @@ let QuickStart = null; // { frameBlob, title } when opened from a campaign link
 function rangeRow(id, label, min, max, step = 1) {
   return `<div class="range"><div class="range-top"><label for="${id}">${label}</label><output id="${id}O"></output></div><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"></div>`;
 }
-async function viewEditor(id) {
+async function viewEditor(id, preset) {
   let p;
-  if (id) {
+  if (preset) p = preset;
+  else if (id) {
     p = await DB.get(id);
     if (!p) { view.innerHTML = emptyState(ART.m0, "Proyek tidak ditemukan", "Mungkin sudah dihapus, atau disimpan di browser atau perangkat lain.", `<a class="btn btn-primary" href="#projects">Buka koleksi</a>`); return; }
   } else {
@@ -1326,10 +1440,11 @@ async function viewEditor(id) {
     if (p.assets.background) Ed.imgs.bg = await blobToImage(p.assets.background);
     if (p.assets.photo) { Ed.imgs.photo = await blobToImage(p.assets.photo); Ed.photoBlob = p.assets.photo; }
   } catch (e) { toast("Beberapa gambar di proyek ini tidak bisa dibuka.", "err"); }
-  if (p._quick && Ed.imgs.frame) p.output = { w: Ed.imgs.frame.naturalWidth, h: Ed.imgs.frame.naturalHeight, preset: "frame" };
+  if (p._quick && !p._campaign && Ed.imgs.frame) p.output = { w: Ed.imgs.frame.naturalWidth, h: Ed.imgs.frame.naturalHeight, preset: "frame" };
   if (Ed.imgs.photo) Ed.ps = (p.editor && p.editor.photo) ? { ...p.editor.photo, crop: { ...p.editor.photo.crop } } : initialPhotoState(Ed.imgs.photo, p);
   Ed.hist = [snap()];
   const back = p._quick ? "#home" : "#project-" + p.id;
+  if (p._campaign && !Prefs.get("seenCampaignTip")) { setTimeout(() => toast("Ketuk area foto atau tombol Upload untuk memasang fotomu."), 600); Prefs.set("seenCampaignTip", true); }
 
   view.innerHTML = `
   <div class="editor" id="editor">
@@ -1582,7 +1697,7 @@ function updateUI() {
   const hint = $("#hint");
   hint.textContent = !Ed.imgs.frame && !Ed.imgs.bg ? "Tambahkan bingkai dan foto untuk mulai" : !has ? "Tambahkan foto untuk mulai" : matchMedia("(pointer:coarse)").matches ? "Geser untuk memindah, cubit untuk zoom dan putar" : "Geser untuk memindah, scroll untuk zoom";
   const st = $("#saveState");
-  st.innerHTML = Ed.p._quick ? "Belum disimpan, twibbon cepat" : !DB.ok ? "Tidak tersimpan, penyimpanan tidak tersedia" : Ed.pending ? "Menyimpan…" : "<i></i>Tersimpan di perangkat ini";
+  st.innerHTML = Ed.p._campaign ? "Campaign siap pakai" : Ed.p._quick ? "Belum disimpan, twibbon cepat" : !DB.ok ? "Tidak tersimpan, penyimpanan tidak tersedia" : Ed.pending ? "Menyimpan…" : "<i></i>Tersimpan di perangkat ini";
   syncControls();
 }
 
@@ -1701,7 +1816,7 @@ async function doDownload() {
   try {
     const { blob, ext } = await renderFull();
     const name = `${slug(Ed.p.title)}-bingkaikeren.${ext}`;
-    if (await saveFile(blob, name)) openShareDialog({ title: Ed.p._quick ? "" : Ed.p.title, project: Ed.p._quick ? null : Ed.p, blob, filename: name });
+    if (await saveFile(blob, name)) openShareDialog({ title: (Ed.p._quick && !Ed.p._campaign) ? "" : Ed.p.title, project: Ed.p._quick ? null : Ed.p, blob, filename: name, link: Ed.p._campaign ? campaignURL(Ed.p._campaign) : undefined });
   } catch (e) { toast(e.message || "Gambar gagal dibuat.", "err"); }
 }
 function leaveEditor() {
@@ -1722,7 +1837,7 @@ async function route() {
   if (dlg.open) closeDialog();
   releaseViewURLs();
   document.body.classList.remove("in-editor");
-  const navKey = h.startsWith("project-") || h.startsWith("editor") ? "projects" : h;
+  const navKey = h.startsWith("project-") || h.startsWith("editor") ? "projects" : h.startsWith("pakai-") ? "home" : h;
   $$("[data-nav]").forEach(a => { if (a.dataset.nav === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   try {
     if (h === "home") await viewHome();
@@ -1731,6 +1846,15 @@ async function route() {
     else if (h.startsWith("project-")) await viewProject(h.slice(8));
     else if (h === "editor") await viewEditor(null);
     else if (h.startsWith("editor-")) await viewEditor(h.slice(7));
+    else if (h.startsWith("pakai-")) {
+      view.innerHTML = `<div class="empty"><img class="mascot" src="${ART.m3}" alt=""><h3>Menyiapkan bingkai…</h3></div>`;
+      const c = (await loadCampaigns()).find(x => x.id === h.slice(6));
+      if (token !== routeToken) return;
+      if (!c) { view.innerHTML = emptyState(ART.m0, "Campaign tidak ditemukan", "Mungkin sudah tidak aktif atau link-nya salah ketik.", `<a class="btn btn-primary" href="#home">Lihat campaign lain</a>`); return; }
+      const p = await campaignToProject(c);
+      if (token !== routeToken) return;
+      await viewEditor(null, p);
+    }
     else if (h === "preferences") await viewPreferences();
     else if (h === "help") viewHelp();
     else { location.replace("#home"); return; }
