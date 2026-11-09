@@ -1,0 +1,47 @@
+{
+  "updated": "2026-11-09",
+  "campaigns": [
+    {
+      "id": "hari-pahlawan-nasional",
+      "title": "Hari Pahlawan Nasional",
+      "description": "Peringatan Hari Pahlawan 10 November 2026. Pasang foto terbaikmu dengan bingkai ini dan bagikan semangat kepahlawanan. #HariPahlawan2026",
+      "category": "Pendidikan",
+      "type": "frame",
+      "output": {
+        "w": 1254,
+        "h": 1254
+      },
+      "placement": {
+        "fit": "cover",
+        "zoom": 0.73,
+        "ox": -0.008,
+        "oy": -0.093
+      },
+      "fill": "#FFFFFF",
+      "frame": "hari-pahlawan-nasional.png",
+      "cover": "hari-pahlawan-nasional-sampul.jpg",
+      "active": true
+    },
+    {
+      "id": "hari-guru-nasional-2026",
+      "title": "Hari Guru Nasional 2026",
+      "description": "Hari Guru Nasional 2026 – Terima Kasih Guruku",
+      "category": "Pendidikan",
+      "type": "frame",
+      "output": {
+        "w": 1254,
+        "h": 1254
+      },
+      "placement": {
+        "fit": "cover",
+        "zoom": 0.75,
+        "ox": -0.008,
+        "oy": -0.107
+      },
+      "fill": "#FFFFFF",
+      "frame": "hari-guru-nasional-2026.png",
+      "cover": "hari-guru-nasional-2026-sampul.jpg",
+      "active": true
+    }
+  ]
+}
