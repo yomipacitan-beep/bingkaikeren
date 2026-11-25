@@ -1,6 +1,86 @@
 {
-  "updated": "2026-11-09",
+  "updated": "2026-11-25",
   "campaigns": [
+    {
+      "id": "netfest-bingkai-neon",
+      "title": "NetFest TKJ 2026 – Bingkai Neon",
+      "description": "Bingkai biru neon untuk Guru Tamu Network Festival TKJ 2026, SMK Negeri 1 Donorojo. Tema: From Network Engineer to Digital Entrepreneur.",
+      "category": "Pendidikan",
+      "type": "frame",
+      "output": {
+        "w": 1254,
+        "h": 1254
+      },
+      "placement": {
+        "fit": "cover",
+        "zoom": 0.72,
+        "ox": -0.009,
+        "oy": -0.034
+      },
+      "fill": "#FFFFFF",
+      "frame": "netfest-bingkai-neon.png",
+      "active": true
+    },
+    {
+      "id": "netfest-bingkai-kuning",
+      "title": "NetFest TKJ 2026 – Bingkai Kuning",
+      "description": "Bingkai kuning-biru untuk Guru Tamu Network Festival TKJ 2026, SMK Negeri 1 Donorojo.",
+      "category": "Pendidikan",
+      "type": "frame",
+      "output": {
+        "w": 1254,
+        "h": 1254
+      },
+      "placement": {
+        "fit": "cover",
+        "zoom": 0.72,
+        "ox": -0.016,
+        "oy": -0.029
+      },
+      "fill": "#FFFFFF",
+      "frame": "netfest-bingkai-kuning.png",
+      "active": true
+    },
+    {
+      "id": "netfest-poster-kuning",
+      "title": "NetFest TKJ 2026 – Poster Kuning",
+      "description": "Poster foto kuning-biru Guru Tamu NetFest TKJ 2026. Connect, Learn, Build, and Earn!",
+      "category": "Pendidikan",
+      "type": "frame",
+      "output": {
+        "w": 1199,
+        "h": 1312
+      },
+      "placement": {
+        "fit": "cover",
+        "zoom": 0.54,
+        "ox": -0.013,
+        "oy": -0.182
+      },
+      "fill": "#FFFFFF",
+      "frame": "netfest-poster-kuning.png",
+      "active": true
+    },
+    {
+      "id": "netfest-poster-neon",
+      "title": "NetFest TKJ 2026 – Poster Neon",
+      "description": "Poster foto biru neon Guru Tamu NetFest TKJ 2026. Connect, Learn, Build, and Earn!",
+      "category": "Pendidikan",
+      "type": "frame",
+      "output": {
+        "w": 1199,
+        "h": 1312
+      },
+      "placement": {
+        "fit": "cover",
+        "zoom": 0.58,
+        "ox": -0.01,
+        "oy": -0.164
+      },
+      "fill": "#FFFFFF",
+      "frame": "netfest-poster-neon.png",
+      "active": true
+    },
     {
       "id": "hari-pahlawan-nasional",
       "title": "Hari Pahlawan Nasional",
